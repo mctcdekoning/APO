@@ -31,16 +31,29 @@ end
 
 Nodes = NodesEU + NodesUS;
 
-% number of AC types
-ACtype = 5;
-
-% number of AC per AC type
-disp('Number of AC per type: ')       
+% number of AC types and AC per AC type
+disp('Number of AC per type: ')
+ACtype = 0;
 AC1  = input('type 1: '); 
+if AC1 ~= 0
+    ACtype = ACtype + 1;
+end
 AC2  = input('type 2: ');
+if AC2 ~= 0
+    ACtype = ACtype + 1;
+end
 AC3  = input('type 3: ');
+if AC3 ~= 0
+    ACtype = ACtype + 1;
+end
 AC4  = input('type 4: ');
-AC5  = input('type 5: ');       
+if AC4 ~= 0
+    ACtype = ACtype + 1;
+end
+AC5  = input('type 5: ');
+if AC5 ~= 0
+    ACtype = ACtype + 1;
+end
 
 % total number of AC
 AC = AC1 + AC2 + AC3 + AC4 + AC5;
@@ -136,10 +149,98 @@ Y_ij = reshape(YY_ij,Nodes*Nodes, 1);
 %% Initiate CPLEX
 
 % Decision variables
-DV  = Nodes * Nodes * ACtype;      % Number of DV = Nodes (i) * Nodes (j) * ACtype (k)
+DV = Nodes * Nodes * ACtype;      % Number of DV = Nodes (i) * Nodes (j) * ACtype (k)
 
-% function out = varindex(m, n, p)
-%     out = (m-1) * Nodes + n + Nodes*Nodes*(p-1)
-% end
+% Initialize the CPLEX object
+model               = 'Cplex_model';
+cplex               = Cplex('model');
+cplex.Model.sense   = 'maximize';
+
+%% Objective function
+
+% multiple dimension matrix of fixed cost AC
+for k = 1:ACtype;
+    C_fix(:,:,k) = ones(Nodes,Nodes)*Cost_Fixed_ac(k);
+end
+
+% multiple dimension matrix of time-based cost ac
+for k = 1:ACtype;
+    C_time(:,:,k)  =   Cost_Time_ac(k).*(d_ij./sp_ac(k));
+end
+
+% multiple dimension matrix of fuel cost ac
+for k = 1:ACtype;
+    C_fuel(:,:,k)  =   Cost_Fuel_ac(k).*d_ij;
+end
+
+Cost_X_ij   =   Yield_eur_ij.*d_ij;
+Cost_W_ij   =   Y_ij.*d_ij;
+Cost_Z_ij   =   C_fix + C_time + C_fuel;
+
+Cost_X      =   reshape(Cost_X_ij, Nodes*Nodes, 1);
+Cost_W      =   reshape(Cost_W_ij, Nodes*Nodes, 1);
+Cost_L      =   transpose(Cost_Lease_ac(:,1:ACtype));
+
+for k = 1:ACtype;
+    Cost_Z(:,k)            =   reshape(Cost_Z_ij(:,:,k), Nodes*Nodes, 1);
+end
+
+Cost_Z                     =   reshape(Cost_Z, Nodes*Nodes*ACtype, 1) ;
+
+
+        obj     =      [Cost_X ; Cost_W ; -Cost_L ; -Cost_Z];
+        lb      =      zeros(DV,1);
+        ub      =      inf(DV,1);
+        ctype   =   char(ones(1, (DV)) * ('I')); 
+        
+        
+        l = 1;  
+        for i = 1:Nodes;
+            for j = 1:Nodes;                          % of the X_{ij} variables
+                NameDV (l,:)  = ['X_' num2str(i,'%02d') ',' num2str(j,'%02d') '_' num2str(0,'%02d')];
+                l = l + 1;
+            end;
+        end;
+        
+        for i = 1:Nodes;
+            for j = 1:Nodes;                          % of the W_{ij} variables
+                NameDV (l,:)  = ['W_' num2str(i,'%02d') ',' num2str(j,'%02d') '_' num2str(0,'%02d')] ;
+                l = l + 1;
+            end;
+        end;
+        
+        for k = 1:ACtype;                                  % of the AC^k variables
+                    NameDV (l,:)  = ['A_' num2str(0,'%02d') ',' num2str(0,'%02d') '_' num2str(k,'%02d')];
+                    l = l + 1;           
+        end;
+%         
+        % Array with DV names
+        for k = 1:ACtype;
+            for i = 1:Nodes;
+                for j = 1:Nodes ;                     % of the Z_{ij}^k variables
+                    NameDV (l,:)  = ['Z_' num2str(i,'%02d') ',' num2str(j,'%02d') '_' num2str(k,'%02d')];
+                    l = l + 1;
+                end;
+            end;
+        end;
+
+cplex.addCols(obj, [], lb, ub, ctype, NameDV);
+  
+%% Execute model
+
+cplex.solve();
+cplex.writeModel([model '.lp'])
+
+
+%% 
+
+
+
+
+  function out = varindex(m, n, p)
+      out = (m-1) * Nodes + n + Nodes*Nodes *(p-1)
+  end
+
+
 
 
