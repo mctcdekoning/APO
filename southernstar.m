@@ -15,16 +15,16 @@ addpath ('/Users/mathiasdekoning/Applications/IBM/ILOG/CPLEX_Studio1271/cplex/ma
 %% Determine input
 
 % select input file and sheet
-data    = [pwd '/AE4423_Datasheet_20.xlsx'];
+data = [pwd '/AE4423_Datasheet_20.xlsx'];
 
 % number of EU airports
-NodesEU   = input('Number of EU airports (between 5 and 20): ');
+NodesEU = input('Number of EU airports (between 5 and 20): ');
 while ismember(NodesEU,5:20) == 0
     NodesEU = input('Invalid input. Number of EU airports (between 5 and 20): ');
 end
 
 % number of US airports
-NodesUS   = input('Number of US airports (between 0 and 4): ');
+NodesUS = input('Number of US airports (between 0 and 4): ');
 while ismember(NodesUS,0:4) == 0
     NodesEU = input('Invalid input. Number of US airports (between 0 and 4): ');
 end
