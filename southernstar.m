@@ -1,3 +1,4 @@
+function Multicommodity ()
 % Optimization file problem 1.1
 clear all
 close all
@@ -244,12 +245,24 @@ end
 
 
 %% 
-function out = Xindex(m, n, p)
-        out = (m - 1) * Nodes + n + Nodes*Nodes*(p-1);  % Function given the variable index for each X(i,j,k) [=(m,n,p)]  
-              %column       %row   %parallel matrixes (k=1 & k=2)
+    function out = Xindex(m, n)
+        out = (m - 1) * Nodes + n;  % Function given the variable index for each X(i,j) [=(m,n)]  
+              %column          %row   
     end
 
-    function out = Yindex(m, n)
-        out = Nodes*Nodes*Classes + (m - 1) * Nodes + n;  % Function given the variable index for each Y(i,j) [=(m,n)]  
-                   %X counter        %column       %row   %parallel matrixes (k=1 & k=2)
+    function out = Windex(m, n)
+        out = Nodes*Nodes + (m - 1) * Nodes + n;  % Function given the variable index for each W(i,j) [=(m,n)]  
+              %X counter     %column          %row   
     end
+    
+    function out = Lindex(p)
+        out = p + 2*Nodes*Nodes;  % Function given the variable index for each X(i,j,k) [=(m,n,p)]  
+              %column %X/Wcounter 
+    end
+    
+    function out = Zindex(m, n, p)
+        out = 2*Nodes*Nodes + ACtype + (m - 1) * Nodes + n + Nodes*Nodes*(p-1);  % Function given the variable index for each X(i,j,k) [=(m,n,p)]  
+              %X/W/L Counter            %column          %row %parallel matrixes (k=1 & k=2)
+    end
+
+end
