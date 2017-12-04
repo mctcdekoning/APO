@@ -1,3 +1,4 @@
+function Multicommodity ()
 % Optimization file problem 1.1
 clear all
 close all
@@ -56,7 +57,8 @@ if AC5 ~= 0
 end
 
 % total number of AC
-AC = AC1 + AC2 + AC3 + AC4 + AC5;
+AC_total = AC1 + AC2 + AC3 + AC4 + AC5;
+AC = [AC1 AC2 AC3 AC4 AC5];
 
 %% import airport data
 
@@ -93,6 +95,12 @@ Lat       = deg2rad(Lat_deg);              %[rad]
 Long      = deg2rad(Long_deg);             %[rad]
 
 disp('Your selected airports are '), disp(Airports)
+
+% Transfer passengers from departing from the hub are not allowed
+Demand_G = Demand;
+Demand_G(5,:) = zeros(1,Nodes);
+Demand_G(:,5) = zeros(Nodes,1);
+
 
 %% import aircraft data
 
@@ -133,6 +141,17 @@ end     % verified Londen-Paris = 350 [km]
 % Convert to correct matrix
 d_ij = reshape (dd_ij, Nodes*Nodes, 1);
 
+% Define matrix a_ijk which is 0 is range of aircraft is not sufficient for distance airport i to j
+a_ijk=zeros(Nodes,Nodes,ACtype);
+for i = 1 : Nodes
+    for j = 1:Nodes
+        for k = 1: ACtype;
+            if dd_ij(i,j)<r_ac(k);
+                a_ijk(i,j,k)=1000;
+            end
+        end
+    end
+end
 
 %% Calculate the yield
 
@@ -186,9 +205,9 @@ Cost_X      =   reshape(Cost_X_ij, numel(Cost_X_ij), 1);
 Cost_W      =   reshape(Cost_W_ij, numel(Cost_W_ij), 1);
 Cost_Z      =   reshape(Cost_Z_ij, numel(Cost_Z_ij), 1);
 
-Cost_L      =   transpose(Cost_Lease_ac(:,1:ACtype));
+Cost_AC      =   transpose(Cost_Lease_ac(:,1:ACtype));
 
-        obj     =      [Cost_X ; Cost_W ; -Cost_L ; -Cost_Z];
+        obj     =      [Cost_X ; Cost_W ; -Cost_AC ; -Cost_Z];
         lb      =      zeros(DV,1);
         ub      =      inf(DV,1);
         ctype   =      char(ones(1, (DV)) * ('I')); 
@@ -227,16 +246,84 @@ cplex.addCols(obj, [], lb, ub, ctype, NameDV);
 
 %% Constraints
 
-% Flow conservation at the nodes
-C1 = zeros(1, DV);    %Setting coefficient matrix with zeros
+% All flow each airport leaves the airport:
 for i = 1:Nodes
         for j = 1:Nodes
-        C1(Xindex(i,j)) = 1;              %Link getting IN the node
-        C1(Xindex(j,i)) = -1;             %Link getting OUT the node
-    end
-    cplex.addRows(Flow(i,k), C1, Flow(i,k), sprintf('FlowBalanceNode%d_%d',i,k));
+            C1 = zeros(1, DV);                          %Setting coefficient matrix with zeros
+            C1(Xindex(i,j)) = 1;                        % Passenger 
+            C1(Windex(i,j)) = 1;                        %Link getting OUT the node
+            cplex.addRows(-inf, C1, Demand(i,j), sprintf('FlowBalanceNode%d_%d',i,j))
+        end
 end
-  
+
+%Transfer passengers aircraft only are only if hub is not origin or destination:
+for i = 1:Nodes
+    for j = 1:Nodes
+        C2 = zeros(1, DV);
+        C2(Windex(i,j)) = 1;
+        cplex.addRows(-inf, C2, Demand_G(i,j), sprintf('TransferPassengerNotHub%d_%d',i,j))
+    end
+end
+
+%Capacity verification in each flight leg:
+% for i = 1:Nodes
+%     for j = 1:Nodes
+%         C3 = zeros(1,DV)
+%         C3(Xindex(i,j)) = 1
+%         for k = 1:ACtype
+%             C3(Windex
+%             
+%         end
+%     end
+% end
+
+%Balance incoming outgoing flight
+for i = 1:Nodes;
+    for k = 1:ACtype;
+        C4 = zeros(1, DV);
+        for j = Nodes
+            C4(Zindex(i,j,k))    = 1;
+            C4(Zindex(j,i,k))    = -1;
+        end
+        cplex.addRows(0,C4,0,sprintf('FlowBalanceNode%d_%d',i,j,k)) ;
+    end
+end
+
+% Use aircraft limited to block hours
+% for k = 1:ACtype;
+%     C5 = zeros(1,DV);
+%     for i = 1:Nodes;
+%         for j = 1:Nodes;
+%             C5(Zindex(i,j,k)) = (dd_ij(i,j)/v_ac(k))+TAT_ac(i,j,k);
+%         end
+%     end
+%     C5(ACindex(k)) = -(70*AC(k));
+%     cplex.addRows(-inf,C5,0,sprintf('FlowBalanceNode%d_%d',i,j,k));
+% end
+%       !!!!!TAT_ac(i,j,k) needs to be build!!!!!!!
+
+% number of aircraft type k equals the fleet number:
+
+% number of aircraft type k equals the fleet number:
+for k = 1:ACtype
+    C6 = zeros(1, DV);
+    C6(ACindex(k)) = n(k);
+    C6(ACindex(k)) = AC(k);
+    cplex.addRows(0,C6,0,sprintf('Fleetnumber%d_%d',k));
+end
+
+% Aircraft flying to airport is able to fly the distance, 
+for i = 1:Nodes
+    for j = 1:Nodes
+        for k = 1:ACtype
+            C7 = zeros(1,DV);
+            C7(Zindex(i,j,k)) = 1          
+            cplex.addRows(-inf,C7,a_ijk(i,j,k),sprintf('MaxRange%d_%d',i,j,k));
+        end
+    end
+end
+
+
 %% Execute model
 
 % cplex.solve();
@@ -244,12 +331,24 @@ end
 
 
 %% 
-function out = Xindex(m, n, p)
-        out = (m - 1) * Nodes + n + Nodes*Nodes*(p-1);  % Function given the variable index for each X(i,j,k) [=(m,n,p)]  
-              %column       %row   %parallel matrixes (k=1 & k=2)
+    function out = Xindex(m, n)
+        out = (m - 1) * Nodes + n;  % Function given the variable index for each X(i,j) [=(m,n)]  
+              %column          %row   
     end
 
-    function out = Yindex(m, n)
-        out = Nodes*Nodes*Classes + (m - 1) * Nodes + n;  % Function given the variable index for each Y(i,j) [=(m,n)]  
-                   %X counter        %column       %row   %parallel matrixes (k=1 & k=2)
+    function out = Windex(m, n)
+        out = Nodes*Nodes + (m - 1) * Nodes + n;  % Function given the variable index for each W(i,j) [=(m,n)]  
+              %X counter     %column          %row   
     end
+    
+    function out = ACindex(p)
+        out = p + 2*Nodes*Nodes;  % Function given the variable index for each X(i,j,k) [=(m,n,p)]  
+              %column %X/Wcounter 
+    end
+    
+    function out = Zindex(m, n, p)
+        out = 2*Nodes*Nodes + ACtype + (m - 1) * Nodes + n + Nodes*Nodes*(p-1);  % Function given the variable index for each X(i,j,k) [=(m,n,p)]  
+              %X/W/L Counter            %column          %row %parallel matrixes (k=1 & k=2)
+    end
+
+end
