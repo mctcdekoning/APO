@@ -82,7 +82,7 @@ if NodesUS ~= 0
     Demand              = [xlsread(data,1,DemandcellsEU),xlsread(data,1,DemandcellsUSj);
                            xlsread(data,1,DemandcellsUSi),xlsread(data,1,DemandcellsUSij)];
 else
-    [~,Airports,~]  = AirportsEU;
+    Airports        = AirportsEU;
     Lat_deg         = xlsread(data,1,LatcellsEU);     %[deg]
     Long_deg        = xlsread(data,1,LongcellsEU);    %[deg]
     RunwayAir       = xlsread(data,1,RunwaycellsEU);
@@ -96,26 +96,35 @@ disp('Your selected airports are '), disp(Airports)
 
 %% import aircraft data
 
-ac           = 5;
+actypes      = [AC1~=0,AC2~=0,AC3~=0,AC4~=0,AC5~=0];
 v_ac         = xlsread(data,1,'AC7:AG7');       % [km/hr]
+v_ac         = v_ac(v_ac.*actypes~=0);          % [km/hr]
 s_ac         = xlsread(data,1,'AC8:AG8');       % [-]
+s_ac         = s_ac(s_ac.*actypes~=0);          % [-]
 TAT_ac       = xlsread(data,1,'AC9:AG9');       % [min]
+TAT_ac       = TAT_ac(TAT_ac.*actypes~=0);      % [min]
 r_ac         = xlsread(data,1,'AC10:AG10');     % [km]
+r_ac         = r_ac(r_ac.*actypes~=0);          % [km]
 Runway_ac    = xlsread(data,1,'AC11:AG11');     % [m]
+Runway_ac    = Runway_ac(Runway_ac.*actypes~=0);% [m]
 
 % Cost Parameters
 Cost_Lease_ac  = xlsread(data,1,'AC13:AG13');   % [Euro]
+Cost_Lease_ac  = Cost_Lease_ac(Cost_Lease_ac.*actypes~=0);
 Cost_Fixed_ac  = xlsread(data,1,'AC14:AG14');   % [Euro]
+Cost_Fixed_ac  = Cost_Fixed_ac(Cost_Fixed_ac.*actypes~=0);
 Cost_Time_ac   = xlsread(data,1,'AC14:AG14');   % [Euro/hr]
+Cost_Time_ac   = Cost_Time_ac(Cost_Time_ac.*actypes~=0);
 Cost_Fuel_ac   = xlsread(data,1,'AC15:AG15');   % [Euro/km]
+Cost_Fuel_ac   = Cost_Fuel_ac(Cost_Fuel_ac.*actypes~=0);
 
 %% Calculate the distance between the nodes:
 
 dd_ij = zeros(Nodes,Nodes);
 Re = 6371;  % [km]
 
-for i = 1:Nodes;
-    for j = 1:Nodes;
+for i = 1:Nodes
+    for j = 1:Nodes
         ddd_ij = 2*asin(sqrt(((sin((Lat(i)-Lat(j))/2))^2)+(cos(Lat(i))*cos(Lat(j))*((sin((Long(i)-Long(j))/2))^2)))); 
         dd_ij (i,j) = Re * ddd_ij;
     end
@@ -149,7 +158,8 @@ Y_ij = reshape(YY_ij,Nodes*Nodes, 1);
 %% Initiate CPLEX
 
 % Decision variables
-DV = Nodes * Nodes * ACtype;      % Number of DV = Nodes (i) * Nodes (j) * ACtype (k)
+% Number of DV = Nodes (i) * Nodes (j) * ACtype (k)
+DV = (Nodes * Nodes) + (Nodes * Nodes) + ACtype + (Nodes * Nodes) * ACtype;
 
 % Initialize the CPLEX object
 model               = 'Cplex_model';
@@ -158,89 +168,88 @@ cplex.Model.sense   = 'maximize';
 
 %% Objective function
 
-% multiple dimension matrix of fixed cost AC
+% Variable operational costs
 for k = 1:ACtype;
-    C_fix(:,:,k) = ones(Nodes,Nodes)*Cost_Fixed_ac(k);
-end
-
-% multiple dimension matrix of time-based cost ac
-for k = 1:ACtype;
-    C_time(:,:,k)  =   Cost_Time_ac(k).*(d_ij./sp_ac(k));
-end
-
-% multiple dimension matrix of fuel cost ac
-for k = 1:ACtype;
+    % multiple dimension matrix of fixed cost AC
+    C_fix(:,:,k) = ones(Nodes*Nodes,1)*Cost_Fixed_ac(k);
+    % multiple dimension matrix of time-based cost AC
+    C_time(:,:,k)  =   Cost_Time_ac(k).*(d_ij./v_ac(k));
+    % multiple dimension matrix of fuel cost AC
     C_fuel(:,:,k)  =   Cost_Fuel_ac(k).*d_ij;
 end
 
-Cost_X_ij   =   Yield_eur_ij.*d_ij;
+Cost_X_ij   =   Y_ij.*d_ij;
 Cost_W_ij   =   Y_ij.*d_ij;
 Cost_Z_ij   =   C_fix + C_time + C_fuel;
 
-Cost_X      =   reshape(Cost_X_ij, Nodes*Nodes, 1);
-Cost_W      =   reshape(Cost_W_ij, Nodes*Nodes, 1);
+Cost_X      =   reshape(Cost_X_ij, numel(Cost_X_ij), 1);
+Cost_W      =   reshape(Cost_W_ij, numel(Cost_W_ij), 1);
+Cost_Z      =   reshape(Cost_Z_ij, numel(Cost_Z_ij), 1);
+
 Cost_L      =   transpose(Cost_Lease_ac(:,1:ACtype));
-
-for k = 1:ACtype;
-    Cost_Z(:,k)            =   reshape(Cost_Z_ij(:,:,k), Nodes*Nodes, 1);
-end
-
-Cost_Z                     =   reshape(Cost_Z, Nodes*Nodes*ACtype, 1) ;
-
 
         obj     =      [Cost_X ; Cost_W ; -Cost_L ; -Cost_Z];
         lb      =      zeros(DV,1);
         ub      =      inf(DV,1);
-        ctype   =   char(ones(1, (DV)) * ('I')); 
+        ctype   =      char(ones(1, (DV)) * ('I')); 
         
-        
-        l = 1;  
+% Array with DV names
+        l = 1; 
         for i = 1:Nodes;
-            for j = 1:Nodes;                          % of the X_{ij} variables
+            for j = 1:Nodes;    % of the X_{ij} variables
                 NameDV (l,:)  = ['X_' num2str(i,'%02d') ',' num2str(j,'%02d') '_' num2str(0,'%02d')];
                 l = l + 1;
             end;
         end;
         
         for i = 1:Nodes;
-            for j = 1:Nodes;                          % of the W_{ij} variables
+            for j = 1:Nodes;    % of the W_{ij} variables
                 NameDV (l,:)  = ['W_' num2str(i,'%02d') ',' num2str(j,'%02d') '_' num2str(0,'%02d')] ;
                 l = l + 1;
             end;
         end;
         
-        for k = 1:ACtype;                                  % of the AC^k variables
-                    NameDV (l,:)  = ['A_' num2str(0,'%02d') ',' num2str(0,'%02d') '_' num2str(k,'%02d')];
-                    l = l + 1;           
-        end;
-%         
-        % Array with DV names
-        for k = 1:ACtype;
-            for i = 1:Nodes;
-                for j = 1:Nodes ;                     % of the Z_{ij}^k variables
+        for k = 1:ACtype        % of the AC^k variables
+            NameDV (l,:)  = ['A_' num2str(0,'%02d') ',' num2str(0,'%02d') '_' num2str(k,'%02d')];
+            l = l + 1;           
+        end
+        
+        for k = 1:ACtype        % of the Z_{ij}^k variables
+            for i = 1:Nodes
+                for j = 1:Nodes
                     NameDV (l,:)  = ['Z_' num2str(i,'%02d') ',' num2str(j,'%02d') '_' num2str(k,'%02d')];
                     l = l + 1;
-                end;
-            end;
-        end;
+                end
+            end
+        end
 
 cplex.addCols(obj, [], lb, ub, ctype, NameDV);
+
+%% Constraints
+
+% Flow conservation at the nodes
+C1 = zeros(1, DV);    %Setting coefficient matrix with zeros
+for i = 1:Nodes
+        for j = 1:Nodes
+        C1(Xindex(i,j)) = 1;              %Link getting IN the node
+        C1(Xindex(j,i)) = -1;             %Link getting OUT the node
+    end
+    cplex.addRows(Flow(i,k), C1, Flow(i,k), sprintf('FlowBalanceNode%d_%d',i,k));
+end
   
 %% Execute model
 
-cplex.solve();
-cplex.writeModel([model '.lp'])
+% cplex.solve();
+% cplex.writeModel([model '.lp'])
 
 
 %% 
+function out = Xindex(m, n, p)
+        out = (m - 1) * Nodes + n + Nodes*Nodes*(p-1);  % Function given the variable index for each X(i,j,k) [=(m,n,p)]  
+              %column       %row   %parallel matrixes (k=1 & k=2)
+    end
 
-
-
-
-  function out = varindex(m, n, p)
-      out = (m-1) * Nodes + n + Nodes*Nodes *(p-1)
-  end
-
-
-
-
+    function out = Yindex(m, n)
+        out = Nodes*Nodes*Classes + (m - 1) * Nodes + n;  % Function given the variable index for each Y(i,j) [=(m,n)]  
+                   %X counter        %column       %row   %parallel matrixes (k=1 & k=2)
+    end
