@@ -1,4 +1,4 @@
-function Multicommodity ()
+function Southstar ()
 % Optimization file problem 1.1
 clear all
 close all
@@ -115,8 +115,8 @@ r_ac         = xlsread(data,1,'AC10:AG10');     % [km]
 r_ac         = r_ac(r_ac.*actypes~=0);          % [km]
 Runway_ac    = xlsread(data,1,'AC11:AG11');     % [m]
 Runway_ac    = Runway_ac(Runway_ac.*actypes~=0);% [m]
-LF_EU        = O.75                             % [-]
-LF_US        = O.85                             % [-]
+LF_EU        = 0.75;                             % [-]
+LF_US        = 0.85;                             % [-]
 
 % Cost Parameters
 Cost_Lease_ac  = xlsread(data,1,'AC13:AG13');   % [Euro]
@@ -189,13 +189,31 @@ for i = 1:NodesEU
 end
 for i = NodesEU+1:Nodes
     for j = 1:Nodes
-        LF(i,j) = LF_US
+        LF(i,j) = LF_US;
     end
 end
 
 %% Calculated TAT
 
-TAT_ac
+TAT_ac_ij = zeros(Nodes,Nodes,ACtype);
+
+for k = 1:ACtype 
+    TAT_ac_ij(:,:,k) = TAT_ac(k)*ones(Nodes,Nodes);
+    TAT_ac_ij(:,5,k) = TAT_ac(k)*ones(Nodes,1)*2; % TAT at hub are twice as long
+    for j = 1:Nodes
+        if TAT_ac_ij(5,j,k) < 60;
+            TAT_ac_ij(5,j,k) = 60;
+        end
+    end
+    for i = 1:Nodes
+        for j = 1:Nodes          
+            
+            if i == j
+                TAT_ac_ij(i,j,k) = 0;
+            end
+        end
+    end   
+end
 
 %% Initiate CPLEX
 
@@ -228,9 +246,9 @@ Cost_X      =   reshape(Cost_X_ij, numel(Cost_X_ij), 1);
 Cost_W      =   reshape(Cost_W_ij, numel(Cost_W_ij), 1);
 Cost_Z      =   reshape(Cost_Z_ij, numel(Cost_Z_ij), 1);
 
-Cost_AC      =   transpose(Cost_Lease_ac(:,1:ACtype));
+Cost_N      =   transpose(Cost_Lease_ac(:,1:ACtype));
 
-        obj     =      [Cost_X ; Cost_W ; -Cost_AC ; -Cost_Z];
+        obj     =      [Cost_X ; Cost_W ; -Cost_N ; -Cost_Z];
         lb      =      zeros(DV,1);
         ub      =      inf(DV,1);
         ctype   =      char(ones(1, (DV)) * ('I')); 
@@ -289,8 +307,20 @@ for i = 1:Nodes
 end
 
 %Capacity verification in each flight leg:
-
-
+for i = 1:Nodes
+    for j = 1:Nodes
+       C3 = zeros(1, DV);
+       C3(Xindex(i,j)) = 1;
+       for mm = 1
+           C3(Windex(i,mm) = 1-G_ij(i,j);
+           C3(Windex(mm,j) = 1-G_ij(j,i);
+       end
+       for k = 1:ACtype
+           C3(Zindex(i,j,k) = -s_ac(k)*LF(i,j);
+       end
+       cplex.addRows(0,C3,0,sprintf('CapacityVerification%d_%d',i,j,k)) ;
+    end
+end
 %Balance incoming outgoing flight
 for i = 1:Nodes;
     for k = 1:ACtype;
@@ -311,7 +341,7 @@ for k = 1:ACtype;
             C5(Zindex(i,j,k)) = (dd_ij(i,j)/v_ac(k))+TAT_ac(i,j,k);
         end
     end
-    C5(ACindex(k)) = -(70*AC(k));
+    C5(Nindex(k)) = -(70*AC(k));
     cplex.addRows(-inf,C5,0,sprintf('FlowBalanceNode%d_%d',i,j,k));
 end
 %       !!!!!TAT_ac(i,j,k) needs to be build!!!!!!!
@@ -319,8 +349,8 @@ end
 % number of aircraft type k equals the fleet number:
 for k = 1:ACtype
     C6 = zeros(1, DV);
-    C6(ACindex(k)) = n(k);
-    C6(ACindex(k)) = AC(k);
+    C6(Nindex(k)) = 1;
+    C6(Nindex(k)) = -AC(k);
     cplex.addRows(0,C6,0,sprintf('Fleetnumber%d_%d',k));
 end
 
@@ -336,10 +366,10 @@ for i = 1:Nodes
 end
 
 
-%% Execute model
+ Execute model
 
-% cplex.solve();
-% cplex.writeModel([model '.lp'])
+ cplex.solve();
+ cplex.writeModel([model '.lp'])
 
 
 %% 
@@ -353,7 +383,7 @@ end
               %X counter     %column          %row   
     end
     
-    function out = ACindex(p)
+    function out = Nindex(p)
         out = p + 2*Nodes*Nodes;  % Function given the variable index for each X(i,j,k) [=(m,n,p)]  
               %column %X/Wcounter 
     end
