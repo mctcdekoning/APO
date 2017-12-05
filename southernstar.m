@@ -58,7 +58,7 @@ end
 
 % total number of AC
 AC_total = AC1 + AC2 + AC3 + AC4 + AC5;
-AC = [AC1 AC2 AC3 AC4 AC5];
+AC = [AC1, AC2, AC3, AC4, AC5];
 
 %% import airport data
 
@@ -115,6 +115,8 @@ r_ac         = xlsread(data,1,'AC10:AG10');     % [km]
 r_ac         = r_ac(r_ac.*actypes~=0);          % [km]
 Runway_ac    = xlsread(data,1,'AC11:AG11');     % [m]
 Runway_ac    = Runway_ac(Runway_ac.*actypes~=0);% [m]
+LF_EU        = O.75                             % [-]
+LF_US        = O.85                             % [-]
 
 % Cost Parameters
 Cost_Lease_ac  = xlsread(data,1,'AC13:AG13');   % [Euro]
@@ -173,6 +175,27 @@ end
 
 Y_ij = reshape(YY_ij,Nodes*Nodes, 1);
 
+%% Calculate the LF
+
+LF = zeros(Nodes,Nodes);
+
+for i = 1:NodesEU
+    for j = 1:NodesEU
+        LF(i,j) = LF_EU;
+    end
+    for j = NodesEU+1:Nodes
+        LF(i,j) = LF_US;
+    end
+end
+for i = NodesEU+1:Nodes
+    for j = 1:Nodes
+        LF(i,j) = LF_US
+    end
+end
+
+%% Calculated TAT
+
+TAT_ac
 
 %% Initiate CPLEX
 
@@ -266,16 +289,7 @@ for i = 1:Nodes
 end
 
 %Capacity verification in each flight leg:
-% for i = 1:Nodes
-%     for j = 1:Nodes
-%         C3 = zeros(1,DV)
-%         C3(Xindex(i,j)) = 1
-%         for k = 1:ACtype
-%             C3(Windex
-%             
-%         end
-%     end
-% end
+
 
 %Balance incoming outgoing flight
 for i = 1:Nodes;
@@ -289,20 +303,18 @@ for i = 1:Nodes;
     end
 end
 
-% Use aircraft limited to block hours
-% for k = 1:ACtype;
-%     C5 = zeros(1,DV);
-%     for i = 1:Nodes;
-%         for j = 1:Nodes;
-%             C5(Zindex(i,j,k)) = (dd_ij(i,j)/v_ac(k))+TAT_ac(i,j,k);
-%         end
-%     end
-%     C5(ACindex(k)) = -(70*AC(k));
-%     cplex.addRows(-inf,C5,0,sprintf('FlowBalanceNode%d_%d',i,j,k));
-% end
+%Use aircraft limited to block hours
+for k = 1:ACtype;
+    C5 = zeros(1,DV);
+    for i = 1:Nodes;
+        for j = 1:Nodes;
+            C5(Zindex(i,j,k)) = (dd_ij(i,j)/v_ac(k))+TAT_ac(i,j,k);
+        end
+    end
+    C5(ACindex(k)) = -(70*AC(k));
+    cplex.addRows(-inf,C5,0,sprintf('FlowBalanceNode%d_%d',i,j,k));
+end
 %       !!!!!TAT_ac(i,j,k) needs to be build!!!!!!!
-
-% number of aircraft type k equals the fleet number:
 
 % number of aircraft type k equals the fleet number:
 for k = 1:ACtype
@@ -350,5 +362,5 @@ end
         out = 2*Nodes*Nodes + ACtype + (m - 1) * Nodes + n + Nodes*Nodes*(p-1);  % Function given the variable index for each X(i,j,k) [=(m,n,p)]  
               %X/W/L Counter            %column          %row %parallel matrixes (k=1 & k=2)
     end
-
 end
+
